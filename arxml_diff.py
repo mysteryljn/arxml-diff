@@ -5,6 +5,23 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 def local_name(tag): return tag.rsplit("}",1)[-1]
+
+def namespace_uri(tag):
+    """Return an expanded XML tag's namespace URI, if it has one.
+
+    ElementTree represents namespaced names as ``{uri}local``.  Keeping the
+    URI separate from the local name lets paths remain stable when a prefix
+    changes while still detecting a change to the schema namespace itself.
+    """
+    if isinstance(tag, str) and tag.startswith("{"):
+        end = tag.find("}")
+        if end > 1:
+            return tag[1:end]
+    return None
+
+def expanded_name(tag):
+    uri = namespace_uri(tag)
+    return f"{{{uri}}}{local_name(tag)}" if uri else local_name(tag)
 def node_key(node):
     short=next((value for key,value in node.attrib.items() if local_name(key)=="SHORT-NAME"),None)
     if short is None:
@@ -21,10 +38,23 @@ def _flatten(root):
     output={}
     orders={}
     def visit(node,path):
-        output[path]={"tag":local_name(node.tag),"attrs":{local_name(k):v for k,v in sorted(node.attrib.items())},"text":(node.text or "").strip()}
+        children = list(node)
+        output[path]={
+            "tag":local_name(node.tag),
+            "namespace":namespace_uri(node.tag),
+            "attrs":{local_name(k):v for k,v in sorted(node.attrib.items())},
+            # Keep the local-name attribute view for compatibility, but also
+            # retain expanded names so namespace changes cannot be lost.
+            "attr_qnames":{expanded_name(k):v for k,v in sorted(node.attrib.items())},
+            "text":(node.text or "").strip(),
+            # ElementTree stores text after a child in that child's ``tail``
+            # field.  Include it so mixed-content changes (for example, a
+            # changed description suffix) are not silently missed.
+            "tail":(node.tail or "").strip(),
+        }
         occurrences={}
         child_paths=[]
-        for child in list(node):
+        for child in children:
             key=node_key(child)
             index=occurrences.get(key,0)
             occurrences[key]=index+1

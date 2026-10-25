@@ -54,4 +54,56 @@ class ArxmlTests(unittest.TestCase):
             self.assertEqual(report["changed"], [])
             self.assertEqual(report["order_changed"], ["ROOT"])
             self.assertFalse(report["ok"])
+
+    def test_namespace_uri_change_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            before=Path(tmp)/"before.xml"; after=Path(tmp)/"after.xml"
+            before.write_text(
+                '<ROOT xmlns="urn:autosar:release:1"><ITEM><SHORT-NAME>A</SHORT-NAME></ITEM></ROOT>',
+                encoding="utf-8",
+            )
+            after.write_text(
+                '<ROOT xmlns="urn:autosar:release:2"><ITEM><SHORT-NAME>A</SHORT-NAME></ITEM></ROOT>',
+                encoding="utf-8",
+            )
+
+            report=diff_files(before,after)
+
+            self.assertFalse(report["ok"])
+            self.assertIn("ROOT", report["changed"])
+
+    def test_namespaced_attribute_change_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            before=Path(tmp)/"before.xml"; after=Path(tmp)/"after.xml"
+            before.write_text(
+                '<ROOT xmlns:x="urn:vendor:one"><ITEM x:mode="safe" /></ROOT>',
+                encoding="utf-8",
+            )
+            after.write_text(
+                '<ROOT xmlns:x="urn:vendor:two"><ITEM x:mode="safe" /></ROOT>',
+                encoding="utf-8",
+            )
+
+            report=diff_files(before,after)
+
+            self.assertFalse(report["ok"])
+            self.assertIn("ROOT/ITEM[0]", report["changed"])
+
+    def test_mixed_content_tail_text_change_is_reported(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            before=Path(tmp)/"before.xml"; after=Path(tmp)/"after.xml"
+            before.write_text(
+                "<ROOT><DESC>prefix<EM>value</EM>after</DESC></ROOT>",
+                encoding="utf-8",
+            )
+            after.write_text(
+                "<ROOT><DESC>prefix<EM>value</EM>updated</DESC></ROOT>",
+                encoding="utf-8",
+            )
+
+            report=diff_files(before,after)
+
+            self.assertFalse(report["ok"])
+            self.assertIn("ROOT/DESC[0]/EM[0]", report["changed"])
+
 if __name__=="__main__": unittest.main()
