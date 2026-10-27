@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
-from arxml_diff import diff_files
+from arxml_diff import diff_files, main
 
 class ArxmlTests(unittest.TestCase):
     def test_changed_and_added(self):
@@ -155,5 +155,21 @@ class ArxmlTests(unittest.TestCase):
 
             self.assertFalse(report["ok"])
             self.assertTrue(report["changed"])
+
+    def test_cli_returns_failure_when_files_differ(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            before=Path(tmp)/"before.xml"; after=Path(tmp)/"after.xml"
+            before.write_text("<ROOT><VALUE>1</VALUE></ROOT>", encoding="utf-8")
+            after.write_text("<ROOT><VALUE>2</VALUE></ROOT>", encoding="utf-8")
+            self.assertEqual(main([str(before), str(after)]), 1)
+            self.assertEqual(main([str(before), str(before)]), 0)
+
+    def test_cli_reports_unknown_xml_encoding_without_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            before=Path(tmp)/"before.xml"; after=Path(tmp)/"after.xml"
+            before.write_bytes(b'<?xml version="1.0" encoding="BOGUS"?><ROOT/>')
+            after.write_text("<ROOT/>", encoding="utf-8")
+
+            self.assertEqual(main([str(before), str(after)]), 2)
 
 if __name__=="__main__": unittest.main()

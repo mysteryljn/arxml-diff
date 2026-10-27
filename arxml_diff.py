@@ -100,7 +100,15 @@ def diff_files(before,after):
     return {"added":added,"removed":removed,"changed":changed,"order_changed":order_changed,"ok":not(added or removed or changed or order_changed)}
 def main(argv=None):
     parser=argparse.ArgumentParser(description="Compare two ARXML files structurally"); parser.add_argument("before",type=Path); parser.add_argument("after",type=Path); args=parser.parse_args(argv)
-    try: print(json.dumps(diff_files(args.before,args.after),indent=2,ensure_ascii=False))
-    except (OSError,ET.ParseError) as exc: print(f"error: {exc}"); return 2
-    return 0
+    try:
+        report=diff_files(args.before,args.after)
+        print(json.dumps(report,indent=2,ensure_ascii=False))
+    # An XML declaration may name an unknown codec.  ElementTree raises
+    # LookupError for that malformed external input, so handle it like other
+    # parse failures instead of leaking a traceback from the CLI.
+    except (OSError,ET.ParseError,LookupError) as exc: print(f"error: {exc}"); return 2
+    # A structural difference is a failed comparison for CI purposes.  The
+    # old CLI always returned success, so pipelines could silently accept an
+    # ARXML change even though the JSON report said ``ok: false``.
+    return 0 if report["ok"] else 1
 if __name__=="__main__": raise SystemExit(main())
