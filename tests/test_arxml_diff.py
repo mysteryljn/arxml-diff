@@ -106,4 +106,54 @@ class ArxmlTests(unittest.TestCase):
             self.assertFalse(report["ok"])
             self.assertIn("ROOT/DESC[0]/EM[0]", report["changed"])
 
+    def test_colliding_namespaces_do_not_shift_paths(self):
+        """Adding a namespaced sibling must not relabel existing nodes."""
+        with tempfile.TemporaryDirectory() as tmp:
+            before=Path(tmp)/"before.xml"; after=Path(tmp)/"after.xml"
+            before.write_text(
+                '<ROOT xmlns:a="urn:a"><a:X><VALUE>A</VALUE></a:X></ROOT>',
+                encoding="utf-8",
+            )
+            after.write_text(
+                '<ROOT xmlns:a="urn:a" xmlns:b="urn:b">'
+                '<b:X><VALUE>B</VALUE></b:X>'
+                '<a:X><VALUE>A</VALUE></a:X></ROOT>',
+                encoding="utf-8",
+            )
+
+            report=diff_files(before,after)
+
+            self.assertEqual(report["removed"], [])
+            self.assertEqual(report["changed"], [])
+            self.assertTrue(any("@{urn:b}X" in path for path in report["added"]))
+            self.assertTrue(all("@{urn:a}X" not in path for path in report["added"]))
+
+    def test_qualified_sibling_does_not_shift_unqualified_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            before=Path(tmp)/"before.xml"; after=Path(tmp)/"after.xml"
+            before.write_text("<ROOT><X><VALUE>A</VALUE></X></ROOT>", encoding="utf-8")
+            after.write_text(
+                '<ROOT xmlns:a="urn:a"><X><VALUE>A</VALUE></X>'
+                '<a:X><VALUE>B</VALUE></a:X></ROOT>',
+                encoding="utf-8",
+            )
+
+            report=diff_files(before,after)
+
+            self.assertEqual(report["removed"], [])
+            self.assertEqual(report["changed"], [])
+            self.assertTrue(any("@{urn:a}X" in path for path in report["added"]))
+
+    def test_deeply_nested_document_does_not_hit_recursion_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            before=Path(tmp)/"before.xml"; after=Path(tmp)/"after.xml"
+            depth=1100
+            before.write_text("<ROOT>" + ("<NODE>" * depth) + "before" + ("</NODE>" * depth) + "</ROOT>", encoding="utf-8")
+            after.write_text("<ROOT>" + ("<NODE>" * depth) + "after" + ("</NODE>" * depth) + "</ROOT>", encoding="utf-8")
+
+            report=diff_files(before,after)
+
+            self.assertFalse(report["ok"])
+            self.assertTrue(report["changed"])
+
 if __name__=="__main__": unittest.main()

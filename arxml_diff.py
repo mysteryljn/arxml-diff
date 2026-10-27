@@ -22,6 +22,24 @@ def namespace_uri(tag):
 def expanded_name(tag):
     uri = namespace_uri(tag)
     return f"{{{uri}}}{local_name(tag)}" if uri else local_name(tag)
+
+def _path_key(node):
+    """Return a stable child key, disambiguating colliding XML namespaces.
+
+    ARXML commonly uses the same local element name in multiple namespaces.
+    Paths historically used only the local name, so ``a:X`` and ``b:X`` were
+    assigned the same occurrence sequence.  Inserting one of those elements
+    then made unrelated nodes appear changed.  Keep the compact legacy path
+    for unqualified elements while always including the namespace URI for a
+    qualified element; this makes qualified and unqualified keys distinct
+    without relabelling an existing unqualified node when a sibling appears.
+    """
+    base = node_key(node)
+    # Namespace-qualified nodes always carry their namespace in the path so
+    # the path remains stable when a sibling from another namespace appears.
+    if namespace_uri(node.tag) is not None:
+        return f"{base}@{expanded_name(node.tag)}"
+    return base
 def node_key(node):
     short=next((value for key,value in node.attrib.items() if local_name(key)=="SHORT-NAME"),None)
     if short is None:
@@ -37,7 +55,11 @@ def flatten(root):
 def _flatten(root):
     output={}
     orders={}
-    def visit(node,path):
+    # Walk iteratively so a deeply nested (but valid) ARXML file cannot
+    # exhaust Python's recursion limit and crash a diff/CI job.
+    pending=[(root,node_key(root))]
+    while pending:
+        node,path=pending.pop()
         children = list(node)
         output[path]={
             "tag":local_name(node.tag),
@@ -55,14 +77,15 @@ def _flatten(root):
         occurrences={}
         child_paths=[]
         for child in children:
-            key=node_key(child)
+            key=_path_key(child)
             index=occurrences.get(key,0)
             occurrences[key]=index+1
             child_path=f"{path}/{key}[{index}]"
             child_paths.append(child_path)
-            visit(child,child_path)
         orders[path]=child_paths
-    visit(root,node_key(root)); return output, orders
+        # Preserve document order while using a LIFO stack.
+        pending.extend(reversed(list(zip(children, child_paths))))
+    return output, orders
 def diff_files(before,after):
     left,left_orders=_flatten(ET.parse(before).getroot())
     right,right_orders=_flatten(ET.parse(after).getroot())
